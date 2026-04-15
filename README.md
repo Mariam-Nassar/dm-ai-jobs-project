@@ -1,4 +1,4 @@
-# AI Jobs & Salary Dashboard
+# AI Jobs & Salary Project
 
 Data Mining project analyzing the impact of Artificial Intelligence on job survival and salary trends.
 
