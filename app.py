@@ -10,22 +10,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
-from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.metrics import (
-    accuracy_score,
-    classification_report,
-    confusion_matrix,
-    f1_score,
-    mean_absolute_error,
-    mean_squared_error,
-    r2_score,
-)
-from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
 
 st.set_page_config(
     page_title="AI Jobs Dashboard",
@@ -163,181 +148,6 @@ def build_filtered_data(df: pd.DataFrame, countries, job_titles, exp_levels, yea
 
 
 @st.cache_resource
-
-def run_classification(df: pd.DataFrame):
-    if TARGET_CLASS not in df.columns:
-        return None
-
-    features = [c for c in df.columns if c not in [TARGET_CLASS, TARGET_REG] + LEAKAGE_COLUMNS]
-    X = df[features].copy()
-    y = df[TARGET_CLASS].copy()
-
-    numeric_features = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
-    categorical_features = [c for c in X.columns if c not in numeric_features]
-
-    preprocessor = ColumnTransformer(
-        transformers=[
-            (
-                "num",
-                Pipeline([
-                    ("imputer", SimpleImputer(strategy="median")),
-                    ("scaler", StandardScaler()),
-                ]),
-                numeric_features,
-            ),
-            (
-                "cat",
-                Pipeline([
-                    ("imputer", SimpleImputer(strategy="most_frequent")),
-                    ("onehot", OneHotEncoder(handle_unknown="ignore")),
-                ]),
-                categorical_features,
-            ),
-        ]
-    )
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
-
-    logistic_model = Pipeline([
-        ("prep", preprocessor),
-        ("model", LogisticRegression(max_iter=3000, multi_class="auto")),
-    ])
-
-    rf_model = Pipeline([
-        ("prep", preprocessor),
-        ("model", RandomForestClassifier(n_estimators=300, random_state=42, class_weight="balanced")),
-    ])
-
-    logistic_model.fit(X_train, y_train)
-    rf_model.fit(X_train, y_train)
-
-    log_pred = logistic_model.predict(X_test)
-    rf_pred = rf_model.predict(X_test)
-
-    metrics_df = pd.DataFrame([
-        {
-            "model": "Logistic Regression",
-            "accuracy": round(accuracy_score(y_test, log_pred), 4),
-            "macro_f1": round(f1_score(y_test, log_pred, average="macro"), 4),
-        },
-        {
-            "model": "Random Forest Classifier",
-            "accuracy": round(accuracy_score(y_test, rf_pred), 4),
-            "macro_f1": round(f1_score(y_test, rf_pred, average="macro"), 4),
-        },
-    ])
-
-    rf_preprocessor = rf_model.named_steps["prep"]
-    rf_estimator = rf_model.named_steps["model"]
-
-    feature_names = rf_preprocessor.get_feature_names_out()
-    importances = pd.DataFrame({
-        "feature": feature_names,
-        "importance": rf_estimator.feature_importances_,
-    }).sort_values("importance", ascending=False).head(15)
-
-    cm = confusion_matrix(y_test, rf_pred)
-    cm_df = pd.DataFrame(cm)
-
-    return {
-        "metrics": metrics_df,
-        "feature_importance": importances,
-        "confusion_matrix": cm_df,
-        "classification_report": classification_report(y_test, rf_pred, output_dict=True),
-    }
-
-
-@st.cache_resource
-
-def run_regression(df: pd.DataFrame):
-    if TARGET_REG not in df.columns:
-        return None
-
-    features = [c for c in df.columns if c not in [TARGET_REG, TARGET_CLASS] + LEAKAGE_COLUMNS]
-    X = df[features].copy()
-    y = df[TARGET_REG].copy()
-
-    numeric_features = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
-    categorical_features = [c for c in X.columns if c not in numeric_features]
-
-    preprocessor = ColumnTransformer(
-        transformers=[
-            (
-                "num",
-                Pipeline([
-                    ("imputer", SimpleImputer(strategy="median")),
-                    ("scaler", StandardScaler()),
-                ]),
-                numeric_features,
-            ),
-            (
-                "cat",
-                Pipeline([
-                    ("imputer", SimpleImputer(strategy="most_frequent")),
-                    ("onehot", OneHotEncoder(handle_unknown="ignore")),
-                ]),
-                categorical_features,
-            ),
-        ]
-    )
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
-
-    linear_model = Pipeline([
-        ("prep", preprocessor),
-        ("model", LinearRegression()),
-    ])
-
-    rf_model = Pipeline([
-        ("prep", preprocessor),
-        ("model", RandomForestRegressor(n_estimators=300, random_state=42)),
-    ])
-
-    linear_model.fit(X_train, y_train)
-    rf_model.fit(X_train, y_train)
-
-    lin_pred = linear_model.predict(X_test)
-    rf_pred = rf_model.predict(X_test)
-
-    metrics_df = pd.DataFrame([
-        {
-            "model": "Linear Regression",
-            "rmse": round(np.sqrt(mean_squared_error(y_test, lin_pred)), 2),
-            "mae": round(mean_absolute_error(y_test, lin_pred), 2),
-            "r2": round(r2_score(y_test, lin_pred), 4),
-        },
-        {
-            "model": "Random Forest Regressor",
-            "rmse": round(np.sqrt(mean_squared_error(y_test, rf_pred)), 2),
-            "mae": round(mean_absolute_error(y_test, rf_pred), 2),
-            "r2": round(r2_score(y_test, rf_pred), 4),
-        },
-    ])
-
-    rf_preprocessor = rf_model.named_steps["prep"]
-    rf_estimator = rf_model.named_steps["model"]
-
-    feature_names = rf_preprocessor.get_feature_names_out()
-    importances = pd.DataFrame({
-        "feature": feature_names,
-        "importance": rf_estimator.feature_importances_,
-    }).sort_values("importance", ascending=False).head(15)
-
-    prediction_df = pd.DataFrame({
-        "Actual Salary": y_test.values,
-        "Predicted Salary": rf_pred,
-    })
-
-    return {
-        "metrics": metrics_df,
-        "feature_importance": importances,
-        "predictions": prediction_df,
-    }
-
 
 
 def business_insights(df: pd.DataFrame) -> List[str]:
@@ -580,72 +390,6 @@ def render_exploration(df: pd.DataFrame):
         st.plotly_chart(fig, use_container_width=True)
 
 
-
-def render_classification(df: pd.DataFrame):
-    st.subheader("Classification Modeling")
-    st.caption("Target: job_survival_class")
-
-    result = run_classification(df)
-    if result is None:
-        st.error("Classification target column was not found.")
-        return
-
-    left, right = st.columns([0.95, 1.05])
-    with left:
-        st.dataframe(result["metrics"], use_container_width=True)
-    with right:
-        cm_df = result["confusion_matrix"]
-        fig = px.imshow(cm_df, text_auto=True, aspect="auto", title="Random Forest Confusion Matrix")
-        fig.update_layout(height=320)
-        st.plotly_chart(fig, use_container_width=True)
-
-    fig = px.bar(
-        result["feature_importance"],
-        x="importance",
-        y="feature",
-        orientation="h",
-        title="Top Classification Feature Importance",
-    )
-    fig.update_layout(height=520, yaxis={"categoryorder": "total ascending"})
-    st.plotly_chart(fig, use_container_width=True)
-
-
-
-def render_regression(df: pd.DataFrame):
-    st.subheader("Regression Modeling")
-    st.caption("Target: salary")
-
-    result = run_regression(df)
-    if result is None:
-        st.error("Regression target column was not found.")
-        return
-
-    left, right = st.columns([0.95, 1.05])
-    with left:
-        st.dataframe(result["metrics"], use_container_width=True)
-    with right:
-        pred_df = result["predictions"]
-        fig = px.scatter(
-            pred_df,
-            x="Actual Salary",
-            y="Predicted Salary",
-            title="Actual vs Predicted Salary",
-        )
-        fig.update_layout(height=350)
-        st.plotly_chart(fig, use_container_width=True)
-
-    fig = px.bar(
-        result["feature_importance"],
-        x="importance",
-        y="feature",
-        orientation="h",
-        title="Top Regression Feature Importance",
-    )
-    fig.update_layout(height=520, yaxis={"categoryorder": "total ascending"})
-    st.plotly_chart(fig, use_container_width=True)
-
-
-
 def render_insights(df: pd.DataFrame):
     st.subheader("Business Insights Panel")
     insights = business_insights(df)
@@ -689,15 +433,13 @@ def main():
         st.warning("No data matches the selected filters. Change the filters and try again.")
         st.stop()
 
-    tabs = st.tabs([
+        tabs = st.tabs([
         "Overview",
         "Data Quality",
         "EDA",
-        "Classification",
-        "Regression",
         "Insights",
     ])
-
+    
     with tabs[0]:
         render_overview(filtered_df)
     with tabs[1]:
@@ -705,10 +447,6 @@ def main():
     with tabs[2]:
         render_exploration(filtered_df)
     with tabs[3]:
-        render_classification(filtered_df)
-    with tabs[4]:
-        render_regression(filtered_df)
-    with tabs[5]:
         render_insights(filtered_df)
 
 
